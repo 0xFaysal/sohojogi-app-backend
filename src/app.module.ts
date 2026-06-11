@@ -1,0 +1,39 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MongooseModule } from '@nestjs/mongoose';
+import { AuthModule } from './auth/auth.module';
+import { ChatModule } from './chat/chat.module';
+import { EmailModule } from './email/email.module';
+import { HealthModule } from './health/health.module';
+import { LedgerModule } from './ledger/ledger.module';
+import { OtpModule } from './otp/otp.module';
+import { SourcingModule } from './sourcing/sourcing.module';
+import { StockAlertsModule } from './stock-alerts/stock-alerts.module';
+import { StorefrontModule } from './storefront/storefront.module';
+import { UsersModule } from './users/users.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    MongooseModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        uri: configService
+          .get<string>('MONGO_URI', 'mongodb://127.0.0.1:27017/shojogi')
+          .trim(),
+      }),
+    }),
+    HealthModule,
+    EmailModule,
+    AuthModule,
+    UsersModule,
+    OtpModule,
+    LedgerModule,
+    StorefrontModule,
+    SourcingModule,
+    StockAlertsModule,
+    ChatModule,
+  ],
+})
+export class AppModule {}
