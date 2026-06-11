@@ -1,6 +1,7 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createTransport, Transporter } from 'nodemailer';
+import { getConfigNumber } from '../common/utils/config-number.util';
 
 interface SendMailInput {
   to: string;
@@ -12,12 +13,17 @@ interface SendMailInput {
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly transporter: Transporter;
+  private readonly transporter?: Transporter;
 
   constructor(private readonly configService: ConfigService) {
+    if (this.configService.get<string>('EMAIL_ENABLED', 'true') === 'false') {
+      this.logger.warn('Email delivery is disabled by EMAIL_ENABLED=false');
+      return;
+    }
+
     this.transporter = createTransport({
       host: this.configService.getOrThrow<string>('EMAIL_HOST'),
-      port: this.configService.get<number>('EMAIL_PORT', 587),
+      port: getConfigNumber(this.configService, 'EMAIL_PORT', 587),
       secure: this.configService.get<string>('EMAIL_SECURE') === 'true',
       auth: {
         user: this.configService.getOrThrow<string>('EMAIL_USER'),
@@ -27,14 +33,26 @@ export class EmailService {
   }
 
   async sendMail(input: SendMailInput) {
+    if (!this.transporter) {
+      this.logger.warn(`Skipped email to ${input.to}: email delivery is disabled`);
+      return { accepted: [input.to], rejected: [], messageId: 'email-disabled' };
+    }
+
     try {
       return await this.transporter.sendMail({
         from: this.configService.get<string>('EMAIL_FROM') ?? this.configService.get('EMAIL_USER'),
         ...input,
       });
     } catch (error) {
-      this.logger.error('Email delivery failed', error);
-      throw new InternalServerErrorException('Unable to send email');
+      const smtpError = error as { code?: string; responseCode?: number; command?: string };
+      this.logger.error(
+        `Email delivery failed: code=${smtpError.code ?? 'unknown'} responseCode=${
+          smtpError.responseCode ?? 'unknown'
+        } command=${smtpError.command ?? 'unknown'}`,
+      );
+      throw new ServiceUnavailableException(
+        'Email provider rejected the message. Check EMAIL_USER and EMAIL_PASS.',
+      );
     }
   }
 

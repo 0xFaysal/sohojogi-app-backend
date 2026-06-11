@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { ChatModule } from './chat/chat.module';
 import { EmailModule } from './email/email.module';
+import { HealthModule } from './health/health.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { OtpModule } from './otp/otp.module';
 import { SourcingModule } from './sourcing/sourcing.module';
@@ -23,6 +24,7 @@ import { UsersModule } from './users/users.module';
           .trim(),
       }),
     }),
+    HealthModule,
     EmailModule,
     AuthModule,
     UsersModule,
