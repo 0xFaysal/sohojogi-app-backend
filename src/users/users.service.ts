@@ -2,13 +2,17 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Role } from '../common/enums/role.enum';
-import { User, UserDocument } from './schemas/user.schema';
+import { MerchantApplicationStatus, User, UserDocument } from './schemas/user.schema';
 
 interface CreateUserInput {
   username: string;
   email: string;
   password: string;
   roles?: Role[];
+  phone?: string;
+  consumerProfile?: object;
+  merchantProfile?: object;
+  registrationLocation?: { lat: number; lng: number };
 }
 
 @Injectable()
@@ -25,6 +29,15 @@ export class UsersService {
       ...input,
       email: input.email.toLowerCase(),
       roles: input.roles?.length ? input.roles : [Role.Consumer],
+      registrationLocation: input.registrationLocation
+        ? { ...input.registrationLocation, capturedAt: new Date() }
+        : undefined,
+      merchantProfile: input.merchantProfile
+        ? {
+            ...input.merchantProfile,
+            applicationStatus: MerchantApplicationStatus.Draft,
+          }
+        : undefined,
     });
   }
 
@@ -137,5 +150,61 @@ export class UsersService {
 
   async clearRefreshToken(userId: string): Promise<void> {
     await this.userModel.findByIdAndUpdate(userId, { $unset: { refreshTokenHash: '' } }).exec();
+  }
+
+  async recordLogin(userId: string, loginLocation?: { lat: number; lng: number }): Promise<void> {
+    await this.userModel
+      .findByIdAndUpdate(userId, {
+        lastLoginAt: new Date(),
+        ...(loginLocation
+          ? { lastLoginLocation: { ...loginLocation, capturedAt: new Date() } }
+          : {}),
+      })
+      .exec();
+  }
+
+  async updateMerchantProfile(
+    merchantId: string,
+    merchantProfile: Record<string, unknown>,
+    applicationStatus: MerchantApplicationStatus,
+    submitted = false,
+  ): Promise<UserDocument> {
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        merchantId,
+        {
+          $set: {
+            'merchantProfile.shopType': merchantProfile.shopType,
+            'merchantProfile.shopPhone': merchantProfile.shopPhone,
+            'merchantProfile.shopDescription': merchantProfile.shopDescription,
+            'merchantProfile.operatingHours': merchantProfile.operatingHours,
+            'merchantProfile.location': merchantProfile.location,
+            'merchantProfile.documents': merchantProfile.documents,
+            'merchantProfile.bank': merchantProfile.bank,
+            'merchantProfile.applicationStatus': applicationStatus,
+            ...(submitted ? { 'merchantProfile.submittedAt': new Date() } : {}),
+          },
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return user;
+  }
+
+  async getMerchantApplicationStatus(merchantId: string): Promise<{
+    status: MerchantApplicationStatus;
+    rejection?: object;
+  }> {
+    const user = await this.findById(merchantId);
+
+    return {
+      status: user.merchantProfile?.applicationStatus ?? MerchantApplicationStatus.Draft,
+      rejection: user.merchantProfile?.rejection,
+    };
   }
 }

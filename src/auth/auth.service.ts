@@ -61,6 +61,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    await this.usersService.recordLogin(user.id, loginDto.loginLocation);
+
     return this.buildAuthResponse(user);
   }
 
@@ -218,6 +220,10 @@ export class AuthService {
 
   private sanitizeUser(user: UserDocument) {
     const { password, refreshTokenHash, ...safeUser } = user.toObject();
-    return safeUser;
+    return {
+      ...safeUser,
+      merchantApplicationStatus: safeUser.merchantProfile?.applicationStatus,
+      merchantApplicationRejection: safeUser.merchantProfile?.rejection,
+    };
   }
 }

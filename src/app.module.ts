@@ -7,6 +7,7 @@ import { EmailModule } from './email/email.module';
 import { HealthModule } from './health/health.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { OtpModule } from './otp/otp.module';
+import { RegistrationModule } from './registration/registration.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { StockAlertsModule } from './stock-alerts/stock-alerts.module';
 import { StorefrontModule } from './storefront/storefront.module';
@@ -29,6 +30,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     OtpModule,
+    RegistrationModule,
     LedgerModule,
     StorefrontModule,
     SourcingModule,
