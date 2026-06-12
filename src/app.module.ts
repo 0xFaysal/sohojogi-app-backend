@@ -19,11 +19,20 @@ import { UsersModule } from './users/users.module';
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        uri: configService
-          .get<string>('MONGO_URI', 'mongodb://127.0.0.1:27017/shojogi')
-          .trim(),
-      }),
+      useFactory: (configService: ConfigService) => {
+        const uri = configService.get<string>('MONGO_URI')?.trim();
+
+        if (!uri) {
+          throw new Error('MONGO_URI is required');
+        }
+
+        return {
+          uri,
+          serverSelectionTimeoutMS: 5000,
+          connectTimeoutMS: 5000,
+          socketTimeoutMS: 15000,
+        };
+      },
     }),
     HealthModule,
     EmailModule,
