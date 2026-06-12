@@ -14,19 +14,23 @@ interface SendMailInput {
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly transporter?: Transporter;
+  private readonly fromAddress: string;
 
   constructor(private readonly configService: ConfigService) {
     if (this.configService.get<string>('EMAIL_ENABLED', 'true') === 'false') {
       this.logger.warn('Email delivery is disabled by EMAIL_ENABLED=false');
+      this.fromAddress = 'email-disabled@localhost';
       return;
     }
 
+    const user = this.configService.getOrThrow<string>('EMAIL_USER');
+    this.fromAddress = this.configService.get<string>('EMAIL_FROM') ?? user;
     this.transporter = createTransport({
       host: this.configService.getOrThrow<string>('EMAIL_HOST'),
       port: getConfigNumber(this.configService, 'EMAIL_PORT', 587),
       secure: this.configService.get<string>('EMAIL_SECURE') === 'true',
       auth: {
-        user: this.configService.getOrThrow<string>('EMAIL_USER'),
+        user,
         pass: this.configService.getOrThrow<string>('EMAIL_PASS'),
       },
     });
@@ -40,18 +44,30 @@ export class EmailService {
 
     try {
       return await this.transporter.sendMail({
-        from: this.configService.get<string>('EMAIL_FROM') ?? this.configService.get('EMAIL_USER'),
+        from: this.fromAddress,
         ...input,
       });
     } catch (error) {
-      const smtpError = error as { code?: string; responseCode?: number; command?: string };
+      const smtpError = error as {
+        code?: string;
+        response?: string;
+        responseCode?: number;
+        command?: string;
+      };
       this.logger.error(
         `Email delivery failed: code=${smtpError.code ?? 'unknown'} responseCode=${
           smtpError.responseCode ?? 'unknown'
-        } command=${smtpError.command ?? 'unknown'}`,
+        } command=${smtpError.command ?? 'unknown'} response=${smtpError.response ?? 'unknown'}`,
       );
+
+      if (smtpError.code === 'EAUTH' || smtpError.responseCode === 535) {
+        throw new ServiceUnavailableException(
+          'Email authentication failed. Check EMAIL_USER, EMAIL_PASS, and Gmail app password settings.',
+        );
+      }
+
       throw new ServiceUnavailableException(
-        'Email provider rejected the message. Check EMAIL_USER and EMAIL_PASS.',
+        'Email provider rejected the message. Check backend email environment variables and SMTP provider logs.',
       );
     }
   }
