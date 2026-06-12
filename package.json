@@ -4,7 +4,7 @@
   "description": "SHOJOGI decentralized B2B2C e-commerce backend",
   "license": "MIT",
   "scripts": {
-    "build": "npx nest build",
+    "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
