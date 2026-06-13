@@ -196,6 +196,27 @@ export class UsersService {
     return user;
   }
 
+  async getMerchantSetupDraft(merchantId: string): Promise<Record<string, unknown> | null> {
+    const user = await this.findById(merchantId);
+
+    if (!user.merchantProfile) {
+      return null;
+    }
+
+    const merchantProfile = user.merchantProfile as unknown as Record<string, unknown>;
+
+    return {
+      merchantDraftId: user.id,
+      shopType: merchantProfile.shopType,
+      shopPhone: merchantProfile.shopPhone,
+      shopDescription: merchantProfile.shopDescription,
+      operatingHours: merchantProfile.operatingHours,
+      location: merchantProfile.location,
+      documents: merchantProfile.documents,
+      bank: merchantProfile.bank,
+    };
+  }
+
   async getMerchantApplicationStatus(merchantId: string): Promise<{
     status: MerchantApplicationStatus;
     rejection?: object;

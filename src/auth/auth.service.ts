@@ -15,6 +15,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { VerifyLoginDto } from './dto/verify-login.dto';
 
 interface JwtPayload {
   sub: string;
@@ -47,7 +48,12 @@ export class AuthService {
       purpose: OtpPurpose.EmailVerification,
     });
 
-    return this.buildAuthResponse(user);
+    return {
+      message: 'Registration successful. Verify the OTP sent to your email.',
+      otpRequestId: user.id,
+      email: user.email,
+      user: this.sanitizeUser(user),
+    };
   }
 
   async login(loginDto: LoginDto) {
@@ -62,8 +68,16 @@ export class AuthService {
     }
 
     await this.usersService.recordLogin(user.id, loginDto.loginLocation);
+    await this.otpService.requestOtp({
+      email: user.email,
+      purpose: OtpPurpose.Login,
+    });
 
-    return this.buildAuthResponse(user);
+    return {
+      message: 'Login OTP sent successfully',
+      otpRequestId: user.id,
+      email: user.email,
+    };
   }
 
   async profile(userId: string) {
@@ -97,10 +111,36 @@ export class AuthService {
     });
 
     const user = await this.usersService.markEmailVerified(dto.email);
-    return {
-      message: 'Email verified successfully',
-      user: this.sanitizeUser(user),
-    };
+    return this.buildAuthResponse(user);
+  }
+
+  async resendLoginOtp(dto: EmailDto) {
+    const user = await this.usersService.findByEmail(dto.email);
+    if (!user) {
+      return { message: 'If the email exists, a login code has been sent' };
+    }
+
+    await this.otpService.requestOtp({
+      email: user.email,
+      purpose: OtpPurpose.Login,
+    });
+
+    return { message: 'Login OTP sent successfully' };
+  }
+
+  async verifyLogin(dto: VerifyLoginDto) {
+    await this.otpService.consumeOtp({
+      email: dto.email,
+      code: dto.code,
+      purpose: OtpPurpose.Login,
+    });
+
+    const user = await this.usersService.findByEmail(dto.email);
+    if (!user) {
+      throw new UnauthorizedException('Invalid login verification');
+    }
+
+    return this.buildAuthResponse(user);
   }
 
   async forgotPassword(dto: EmailDto) {

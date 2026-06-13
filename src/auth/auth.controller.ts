@@ -9,6 +9,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { VerifyLoginDto } from './dto/verify-login.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -37,6 +38,16 @@ export class AuthController {
   @Post('verify-email')
   verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
     return this.authService.verifyEmail(verifyEmailDto);
+  }
+
+  @Post('verify-login')
+  verifyLogin(@Body() verifyLoginDto: VerifyLoginDto) {
+    return this.authService.verifyLogin(verifyLoginDto);
+  }
+
+  @Post('resend-login')
+  resendLogin(@Body() emailDto: EmailDto) {
+    return this.authService.resendLoginOtp(emailDto);
   }
 
   @Post('forgot-password')

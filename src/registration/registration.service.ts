@@ -19,6 +19,11 @@ export class RegistrationService {
     return { status: MerchantApplicationStatus.SetupRequired };
   }
 
+  async getMerchantSetupDraft(userId: string) {
+    await this.assertMerchant(userId);
+    return this.usersService.getMerchantSetupDraft(userId);
+  }
+
   async submitMerchantApplication(userId: string, dto: MerchantSetupDto) {
     await this.assertMerchant(userId);
     await this.usersService.updateMerchantProfile(

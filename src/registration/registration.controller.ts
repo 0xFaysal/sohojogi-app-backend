@@ -17,6 +17,11 @@ export class RegistrationController {
     return this.registrationService.saveMerchantSetupDraft(request.user.userId, dto);
   }
 
+  @Get('merchants/setup-draft')
+  getMerchantSetupDraft(@Req() request: { user: RequestUser }) {
+    return this.registrationService.getMerchantSetupDraft(request.user.userId);
+  }
+
   @Post('merchants/submit')
   submitMerchantApplication(
     @Req() request: { user: RequestUser },
