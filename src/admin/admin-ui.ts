@@ -87,6 +87,9 @@ export function renderAdminUi() {
     .kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
     .doc-link { color: var(--primary); font-weight: 800; text-decoration: none; }
     .doc-link:hover { text-decoration: underline; }
+    .asset-preview { display: grid; gap: 8px; }
+    .asset-preview img { width: min(320px, 100%); max-height: 220px; object-fit: contain; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
+    .local-file-note { color: var(--danger); font-weight: 700; }
     .actions { position: sticky; bottom: 0; margin: 16px -20px -20px; padding: 16px 20px; background: rgba(255,255,255,.94); border-top: 1px solid var(--border); backdrop-filter: blur(14px); }
     .hidden { display: none !important; }
     @media (max-width: 860px) {
@@ -322,10 +325,67 @@ export function renderAdminUi() {
     function renderObjectList(object) {
       if (!object || typeof object !== 'object') return '<div class="muted">Not provided</div>';
       return '<dl class="kv">' + Object.entries(object).map(([key, value]) => {
-        const isLink = typeof value === 'string' && /^https?:\\/\\//.test(value);
-        const rendered = isLink ? '<a class="doc-link" target="_blank" rel="noreferrer" href="' + escapeHtml(value) + '">Open file</a>' : escapeHtml(Array.isArray(value) ? value.join(', ') : value);
+        const rendered = renderValue(value);
         return '<dt>' + escapeHtml(readable(key)) + '</dt><dd>' + rendered + '</dd>';
       }).join('') + '</dl>';
+    }
+
+    function renderValue(value) {
+      if (Array.isArray(value)) return escapeHtml(value.join(', '));
+      if (typeof value !== 'string') return escapeHtml(value ?? 'Not provided');
+      if (value.startsWith('file://')) {
+        return '<div class="local-file-note">Local app file only. Ask merchant to re-upload this image.</div>';
+      }
+      if (isMerchantAssetUrl(value)) {
+        return '<div class="asset-preview"><img alt="Merchant document" data-protected-src="' + escapeHtml(normalizeAssetPath(value)) + '" /><a class="doc-link" href="#" data-open-asset="' + escapeHtml(normalizeAssetPath(value)) + '">Open image</a></div>';
+      }
+      if (/^https?:\\/\\//.test(value)) {
+        return '<a class="doc-link" target="_blank" rel="noreferrer" href="' + escapeHtml(value) + '">Open file</a>';
+      }
+      return escapeHtml(value);
+    }
+
+    function isMerchantAssetUrl(value) {
+      return value.includes('/merchant-assets/');
+    }
+
+    function normalizeAssetPath(value) {
+      if (/^https?:\\/\\//.test(value)) {
+        const url = new URL(value);
+        return url.pathname.replace(apiBase, '') || url.pathname;
+      }
+      return value.replace(apiBase, '');
+    }
+
+    async function hydrateProtectedAssets() {
+      const nodes = Array.from(document.querySelectorAll('[data-protected-src]'));
+      await Promise.all(nodes.map(async (node) => {
+        try {
+          const blob = await fetchProtectedAsset(node.dataset.protectedSrc);
+          node.src = URL.createObjectURL(blob);
+        } catch {
+          node.replaceWith(Object.assign(document.createElement('div'), {
+            className: 'local-file-note',
+            textContent: 'Image could not be loaded.',
+          }));
+        }
+      }));
+
+      document.querySelectorAll('[data-open-asset]').forEach((link) => {
+        link.addEventListener('click', async (event) => {
+          event.preventDefault();
+          const blob = await fetchProtectedAsset(link.dataset.openAsset);
+          window.open(URL.createObjectURL(blob), '_blank', 'noopener,noreferrer');
+        });
+      });
+    }
+
+    async function fetchProtectedAsset(path) {
+      const response = await fetch(apiBase + path, {
+        headers: { Authorization: 'Bearer ' + state.token },
+      });
+      if (!response.ok) throw new Error('Asset request failed');
+      return response.blob();
     }
 
     function renderDetail(merchant) {
@@ -350,6 +410,7 @@ export function renderAdminUi() {
       $('approveButton').addEventListener('click', () => approveMerchant(merchant.id));
       $('toggleRejectButton').addEventListener('click', () => $('rejectForm').classList.toggle('hidden'));
       $('rejectForm').addEventListener('submit', (event) => rejectMerchant(event, merchant.id));
+      hydrateProtectedAssets();
     }
 
     function section(title, content) {
