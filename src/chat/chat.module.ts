@@ -7,6 +7,11 @@ import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { ChatMessage, ChatMessageSchema } from './schemas/chat-message.schema';
 import { ChatThread, ChatThreadSchema } from './schemas/chat-thread.schema';
+import {
+  SupportConversation,
+  SupportConversationSchema,
+} from './schemas/support-conversation.schema';
+import { SupportMessage, SupportMessageSchema } from './schemas/support-message.schema';
 
 @Module({
   imports: [
@@ -15,6 +20,8 @@ import { ChatThread, ChatThreadSchema } from './schemas/chat-thread.schema';
     MongooseModule.forFeature([
       { name: ChatThread.name, schema: ChatThreadSchema },
       { name: ChatMessage.name, schema: ChatMessageSchema },
+      { name: SupportConversation.name, schema: SupportConversationSchema },
+      { name: SupportMessage.name, schema: SupportMessageSchema },
     ]),
   ],
   controllers: [ChatController],

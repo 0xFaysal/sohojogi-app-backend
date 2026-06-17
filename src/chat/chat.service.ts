@@ -11,12 +11,21 @@ import {
   ChatThreadPurpose,
   ChatThreadType,
 } from './schemas/chat-thread.schema';
+import {
+  SupportConversation,
+  SupportConversationDocument,
+} from './schemas/support-conversation.schema';
+import { SupportMessage, SupportMessageDocument } from './schemas/support-message.schema';
 
 @Injectable()
 export class ChatService {
   constructor(
     @InjectModel(ChatThread.name) private readonly threadModel: Model<ChatThreadDocument>,
     @InjectModel(ChatMessage.name) private readonly messageModel: Model<ChatMessageDocument>,
+    @InjectModel(SupportConversation.name)
+    private readonly supportConversationModel: Model<SupportConversationDocument>,
+    @InjectModel(SupportMessage.name)
+    private readonly supportMessageModel: Model<SupportMessageDocument>,
     private readonly usersService: UsersService,
   ) {}
 
@@ -89,6 +98,121 @@ export class ChatService {
       .exec();
 
     return Promise.all(threads.map((thread) => this.withLastMessage(thread)));
+  }
+
+  async getPublicSupportConversation(input: {
+    visitorId: string;
+    visitorName?: string;
+    visitorEmail?: string;
+    visitorPhone?: string;
+  }) {
+    const existingConversation = await this.supportConversationModel
+      .findOne({ visitorId: input.visitorId })
+      .exec();
+
+    if (existingConversation) {
+      return existingConversation;
+    }
+
+    const admin = await this.usersService.findFirstByRole(Role.Admin);
+    return this.supportConversationModel.create({
+      visitorId: input.visitorId,
+      visitorName: input.visitorName,
+      visitorEmail: input.visitorEmail,
+      visitorPhone: input.visitorPhone,
+      assignedAdmin: admin._id,
+      status: 'open',
+    });
+  }
+
+  async getPublicSupportMessages(conversationId: string, visitorId: string) {
+    const conversation = await this.supportConversationModel
+      .findOne({ _id: conversationId, visitorId })
+      .exec();
+
+    if (!conversation) {
+      throw new NotFoundException('Support conversation not found');
+    }
+
+    return this.supportMessageModel
+      .find({ conversation: conversation._id })
+      .populate('admin', 'username email roles')
+      .sort({ createdAt: 1 })
+      .exec();
+  }
+
+  async sendPublicSupportMessage(input: {
+    visitorId: string;
+    content: string;
+    visitorName?: string;
+    visitorEmail?: string;
+    visitorPhone?: string;
+  }) {
+    const conversation = await this.getPublicSupportConversation(input);
+    const message = await this.supportMessageModel.create({
+      conversation: conversation._id,
+      senderType: 'visitor',
+      content: input.content,
+      readByVisitor: true,
+    });
+
+    conversation.lastMessageAt = new Date();
+    await conversation.save();
+
+    return message.populate('admin', 'username email roles');
+  }
+
+  async getPublicSupportThreadsForAdmin(adminId: string) {
+    const admin = await this.usersService.findById(adminId);
+    if (!admin.roles.includes(Role.Admin)) {
+      throw new ForbiddenException('Only admins can view support inbox');
+    }
+
+    const conversations = await this.supportConversationModel
+      .find({})
+      .sort({ lastMessageAt: -1, updatedAt: -1 })
+      .exec();
+
+    return Promise.all(conversations.map((conversation) => this.withSupportLastMessage(conversation)));
+  }
+
+  async getPublicSupportMessagesForAdmin(adminId: string, conversationId: string) {
+    const admin = await this.usersService.findById(adminId);
+    if (!admin.roles.includes(Role.Admin)) {
+      throw new ForbiddenException('Only admins can view support messages');
+    }
+
+    return this.supportMessageModel
+      .find({ conversation: conversationId })
+      .populate('admin', 'username email roles')
+      .sort({ createdAt: 1 })
+      .exec();
+  }
+
+  async sendPublicSupportAdminReply(adminId: string, conversationId: string, content: string) {
+    const admin = await this.usersService.findById(adminId);
+    if (!admin.roles.includes(Role.Admin)) {
+      throw new ForbiddenException('Only admins can reply to support messages');
+    }
+
+    const conversation = await this.supportConversationModel.findById(conversationId).exec();
+    if (!conversation) {
+      throw new NotFoundException('Support conversation not found');
+    }
+
+    const message = await this.supportMessageModel.create({
+      conversation: conversation._id,
+      senderType: 'admin',
+      admin: admin._id,
+      content,
+      readByAdmin: true,
+    });
+
+    conversation.assignedAdmin = admin._id;
+    conversation.lastMessageAt = new Date();
+    await conversation.save();
+
+    return message.populate('admin', 'username email roles');
   }
 
   async sendDealerSupportMessage(senderId: string, content: string, threadId?: string) {
@@ -166,6 +290,21 @@ export class ChatService {
     return {
       ...objectThread,
       id: thread.id,
+      lastMessage,
+    };
+  }
+
+  private async withSupportLastMessage(conversation: SupportConversationDocument) {
+    const lastMessage = await this.supportMessageModel
+      .findOne({ conversation: conversation._id })
+      .populate('admin', 'username email roles')
+      .sort({ createdAt: -1 })
+      .exec();
+
+    const objectConversation = conversation.toObject();
+    return {
+      ...objectConversation,
+      id: conversation.id,
       lastMessage,
     };
   }

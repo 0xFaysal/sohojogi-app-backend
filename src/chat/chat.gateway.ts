@@ -9,11 +9,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
+import { Role } from '../common/enums/role.enum';
 import { RequestUser } from '../common/types/request-user.type';
 import { ChatService } from './chat.service';
 import { SendMessageDto } from './dto/send-message.dto';
 
-type AuthenticatedSocket = Socket & { user?: RequestUser };
+type AuthenticatedSocket = Socket & { user?: RequestUser; visitorId?: string };
 
 @WebSocketGateway({ cors: true })
 export class ChatGateway implements OnGatewayConnection {
@@ -27,6 +28,13 @@ export class ChatGateway implements OnGatewayConnection {
   ) {}
 
   async handleConnection(client: AuthenticatedSocket) {
+    const visitorId = client.handshake.auth?.visitorId;
+    if (typeof visitorId === 'string' && visitorId.trim()) {
+      client.visitorId = visitorId.trim();
+      client.join(this.visitorRoom(client.visitorId));
+      return;
+    }
+
     try {
       const token = this.extractToken(client);
       const payload = await this.jwtService.verifyAsync(token, {
@@ -38,6 +46,9 @@ export class ChatGateway implements OnGatewayConnection {
         roles: payload.roles,
       };
       client.join(this.userRoom(client.user.userId));
+      if (client.user.roles?.includes(Role.Admin)) {
+        client.join('support:admins');
+      }
     } catch {
       client.disconnect(true);
     }
@@ -93,6 +104,69 @@ export class ChatGateway implements OnGatewayConnection {
     return message;
   }
 
+  @SubscribeMessage('support:publicMessage')
+  async handlePublicSupportMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody()
+    payload: {
+      conversationId?: string;
+      visitorId?: string;
+      visitorName?: string;
+      visitorEmail?: string;
+      visitorPhone?: string;
+      content: string;
+    },
+  ) {
+    if (client.user) {
+      if (!payload.conversationId) {
+        return;
+      }
+
+      const message = await this.chatService.sendPublicSupportAdminReply(
+        client.user.userId,
+        payload.conversationId,
+        payload.content,
+      );
+      this.server
+        .to(this.publicSupportRoom(payload.conversationId))
+        .emit('support:publicMessage', message);
+      this.server.to('support:admins').emit('support:publicMessage', message);
+      return message;
+    }
+
+    const visitorId = client.visitorId ?? payload.visitorId;
+    if (!visitorId) {
+      client.disconnect(true);
+      return;
+    }
+
+    const message = await this.chatService.sendPublicSupportMessage({
+      visitorId,
+      visitorName: payload.visitorName,
+      visitorEmail: payload.visitorEmail,
+      visitorPhone: payload.visitorPhone,
+      content: payload.content,
+    });
+    client.join(this.publicSupportRoom(message.conversation.toString()));
+    this.server
+      .to(this.publicSupportRoom(message.conversation.toString()))
+      .emit('support:publicMessage', message);
+    this.server.to('support:admins').emit('support:publicMessage', message);
+    return message;
+  }
+
+  @SubscribeMessage('support:joinPublicConversation')
+  async handleJoinPublicConversation(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() payload: { conversationId: string },
+  ) {
+    if (client.user) {
+      client.join('support:admins');
+    }
+
+    client.join(this.publicSupportRoom(payload.conversationId));
+  }
+
   @SubscribeMessage('typing')
   async handleTyping(
     @ConnectedSocket() client: AuthenticatedSocket,
@@ -146,5 +220,13 @@ export class ChatGateway implements OnGatewayConnection {
 
   private threadRoom(threadId: string) {
     return `thread:${threadId}`;
+  }
+
+  private visitorRoom(visitorId: string) {
+    return `visitor:${visitorId}`;
+  }
+
+  private publicSupportRoom(conversationId: string) {
+    return `support:public:${conversationId}`;
   }
 }

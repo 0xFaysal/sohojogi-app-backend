@@ -351,8 +351,8 @@ export function renderAdminUi() {
     function connectSupportSocket() {
       if (state.supportSocket || typeof io !== 'function' || !state.token) return;
       state.supportSocket = io(location.origin, { auth: { token: state.token }, transports: ['websocket'] });
-      state.supportSocket.on('support:message', (message) => {
-        const threadId = String(message.threadId);
+      state.supportSocket.on('support:publicMessage', (message) => {
+        const threadId = String(message.conversation);
         if (threadId === state.selectedSupportThreadId) {
           appendSupportMessage(message);
         }
@@ -378,7 +378,10 @@ export function renderAdminUi() {
     }
 
     function getDealerParticipant(thread) {
-      return (thread.participants || []).find((user) => user.roles?.includes('dealer')) || thread.participants?.[0] || {};
+      return (thread.participants || []).find((user) => user.roles?.includes('dealer')) || thread.participants?.[0] || {
+        username: thread.visitorName || 'Dealer visitor',
+        email: thread.visitorEmail || thread.visitorId,
+      };
     }
 
     function renderSupportThreads() {
@@ -392,7 +395,7 @@ export function renderAdminUi() {
         const id = getThreadId(thread);
         return '<button class="support-thread ' + (id === state.selectedSupportThreadId ? 'active' : '') + '" data-thread-id="' + escapeHtml(id) + '">' +
           '<div class="merchant-title"><span>' + escapeHtml(getUserName(dealer)) + '</span></div>' +
-          '<div class="muted">' + escapeHtml(dealer.email || '') + '</div>' +
+          '<div class="muted">' + escapeHtml(dealer.email || thread.visitorEmail || '') + '</div>' +
           '<div class="muted">' + escapeHtml(last) + '</div>' +
           '</button>';
       }).join('');
@@ -406,7 +409,8 @@ export function renderAdminUi() {
       const dealer = getDealerParticipant(thread || {});
       $('supportChatHead').innerHTML = '<h2>' + escapeHtml(getUserName(dealer)) + '</h2><div class="muted">' + escapeHtml(dealer.email || 'Dealer support conversation') + '</div>';
       $('supportMessages').innerHTML = '<div class="empty">Loading messages...</div>';
-      state.supportMessages = await request('/chat/threads/' + encodeURIComponent(threadId) + '/messages');
+      state.supportSocket?.emit('support:joinPublicConversation', { conversationId: threadId });
+      state.supportMessages = await request('/chat/support/admin/threads/' + encodeURIComponent(threadId) + '/messages');
       renderSupportMessages();
     }
 
@@ -427,7 +431,7 @@ export function renderAdminUi() {
     }
 
     function renderSupportMessage(message) {
-      const mine = message.sender?.roles?.includes('admin');
+      const mine = message.senderType === 'admin';
       return '<div class="bubble-row ' + (mine ? 'mine' : '') + '"><div class="bubble ' + (mine ? 'mine' : '') + '">' +
         '<div>' + escapeHtml(message.content) + '</div>' +
         '<div style="font-size:11px;opacity:.72;margin-top:4px;text-align:right">' + escapeHtml(fmt(message.createdAt)) + '</div>' +
@@ -447,7 +451,7 @@ export function renderAdminUi() {
       if (!content || !state.selectedSupportThreadId) return;
       $('supportMessageInput').value = '';
       if (state.supportSocket?.connected) {
-        state.supportSocket.emit('support:message', { threadId: state.selectedSupportThreadId, content });
+        state.supportSocket.emit('support:publicMessage', { conversationId: state.selectedSupportThreadId, content });
         return;
       }
       const message = await request('/chat/support/admin/threads/' + encodeURIComponent(state.selectedSupportThreadId) + '/messages', {
