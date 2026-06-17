@@ -15,6 +15,17 @@ interface CreateUserInput {
   registrationLocation?: { lat: number; lng: number };
 }
 
+interface MerchantApplicationReviewInput {
+  status: MerchantApplicationStatus.Approved | MerchantApplicationStatus.Rejected;
+  reviewedBy: string;
+  rejection?: {
+    reason: string;
+    tip?: string;
+    rejectedSections?: string[];
+    acceptedSections?: string[];
+  };
+}
+
 @Injectable()
 export class UsersService {
   constructor(@InjectModel(User.name) private readonly userModel: Model<UserDocument>) {}
@@ -226,6 +237,129 @@ export class UsersService {
     return {
       status: user.merchantProfile?.applicationStatus ?? MerchantApplicationStatus.Draft,
       rejection: user.merchantProfile?.rejection,
+    };
+  }
+
+  async listMerchantApplications(status?: MerchantApplicationStatus) {
+    const query: Record<string, unknown> = {
+      roles: Role.Merchant,
+      merchantProfile: { $exists: true },
+    };
+
+    if (status) {
+      query['merchantProfile.applicationStatus'] = status;
+    } else {
+      query['merchantProfile.applicationStatus'] = {
+        $in: [
+          MerchantApplicationStatus.UnderReview,
+          MerchantApplicationStatus.Rejected,
+          MerchantApplicationStatus.Approved,
+          MerchantApplicationStatus.SetupRequired,
+        ],
+      };
+    }
+
+    const users = await this.userModel
+      .find(query)
+      .sort({ 'merchantProfile.submittedAt': -1, updatedAt: -1 })
+      .exec();
+
+    return users.map((user) => this.toAdminMerchantApplication(user));
+  }
+
+  async getMerchantApplicationForAdmin(merchantId: string) {
+    const user = await this.userModel
+      .findOne({ _id: merchantId, roles: Role.Merchant, merchantProfile: { $exists: true } })
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('Merchant application not found');
+    }
+
+    return this.toAdminMerchantApplication(user);
+  }
+
+  async updateMerchantApplicationReview(
+    merchantId: string,
+    input: MerchantApplicationReviewInput,
+  ): Promise<void> {
+    const now = new Date();
+    const set: Record<string, unknown> = {
+      'merchantProfile.applicationStatus': input.status,
+      'merchantProfile.reviewedAt': now,
+      'merchantProfile.reviewedBy': input.reviewedBy,
+    };
+    const unset: Record<string, string> = {};
+
+    if (input.status === MerchantApplicationStatus.Approved) {
+      set['merchantProfile.approvedAt'] = now;
+      unset['merchantProfile.rejection'] = '';
+      unset['merchantProfile.rejectedAt'] = '';
+    }
+
+    if (input.status === MerchantApplicationStatus.Rejected) {
+      set['merchantProfile.rejectedAt'] = now;
+      set['merchantProfile.rejection'] = {
+        reason: input.rejection?.reason,
+        tip: input.rejection?.tip,
+        rejectedSections: input.rejection?.rejectedSections ?? [],
+        acceptedSections: input.rejection?.acceptedSections ?? [],
+      };
+      unset['merchantProfile.approvedAt'] = '';
+    }
+
+    const user = await this.userModel
+      .findByIdAndUpdate(
+        merchantId,
+        {
+          $set: set,
+          ...(Object.keys(unset).length ? { $unset: unset } : {}),
+        },
+        { new: true },
+      )
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('Merchant application not found');
+    }
+  }
+
+  private toAdminMerchantApplication(user: UserDocument) {
+    const merchantProfile = (user.merchantProfile ?? {}) as Record<string, unknown>;
+    const objectUser = user.toObject() as unknown as Record<string, unknown>;
+
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      roles: user.roles,
+      emailVerifiedAt: user.emailVerifiedAt,
+      registrationLocation: objectUser.registrationLocation,
+      lastLoginAt: user.lastLoginAt,
+      lastLoginLocation: objectUser.lastLoginLocation,
+      createdAt: objectUser.createdAt,
+      updatedAt: objectUser.updatedAt,
+      merchantProfile: {
+        shopName: merchantProfile.shopName,
+        ownerName: merchantProfile.ownerName,
+        phone: merchantProfile.phone,
+        shopType: merchantProfile.shopType,
+        shopPhone: merchantProfile.shopPhone,
+        shopDescription: merchantProfile.shopDescription,
+        operatingHours: merchantProfile.operatingHours,
+        location: merchantProfile.location,
+        documents: merchantProfile.documents,
+        bank: merchantProfile.bank,
+        applicationStatus:
+          merchantProfile.applicationStatus ?? MerchantApplicationStatus.Draft,
+        rejection: merchantProfile.rejection,
+        submittedAt: merchantProfile.submittedAt,
+        reviewedAt: merchantProfile.reviewedAt,
+        reviewedBy: merchantProfile.reviewedBy,
+        approvedAt: merchantProfile.approvedAt,
+        rejectedAt: merchantProfile.rejectedAt,
+      },
     };
   }
 }

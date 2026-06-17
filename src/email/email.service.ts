@@ -29,6 +29,9 @@ export class EmailService {
       host: this.configService.getOrThrow<string>('EMAIL_HOST'),
       port: getConfigNumber(this.configService, 'EMAIL_PORT', 587),
       secure: this.configService.get<string>('EMAIL_SECURE') === 'true',
+      connectionTimeout: getConfigNumber(this.configService, 'EMAIL_CONNECTION_TIMEOUT_MS', 5000),
+      greetingTimeout: getConfigNumber(this.configService, 'EMAIL_GREETING_TIMEOUT_MS', 5000),
+      socketTimeout: getConfigNumber(this.configService, 'EMAIL_SOCKET_TIMEOUT_MS', 10000),
       auth: {
         user,
         pass: this.configService.getOrThrow<string>('EMAIL_PASS'),

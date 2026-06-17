@@ -125,6 +125,18 @@ class MerchantProfile {
 
   @Prop()
   submittedAt?: Date;
+
+  @Prop()
+  reviewedAt?: Date;
+
+  @Prop({ trim: true })
+  reviewedBy?: string;
+
+  @Prop()
+  approvedAt?: Date;
+
+  @Prop()
+  rejectedAt?: Date;
 }
 
 @Schema({ timestamps: true })
