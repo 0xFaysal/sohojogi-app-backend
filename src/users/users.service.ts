@@ -22,6 +22,7 @@ interface MerchantApplicationReviewInput {
     reason: string;
     tip?: string;
     rejectedSections?: string[];
+    rejectedFields?: string[];
     acceptedSections?: string[];
   };
 }
@@ -195,6 +196,17 @@ export class UsersService {
             'merchantProfile.applicationStatus': applicationStatus,
             ...(submitted ? { 'merchantProfile.submittedAt': new Date() } : {}),
           },
+          ...(submitted
+            ? {
+                $unset: {
+                  'merchantProfile.rejection': '',
+                  'merchantProfile.reviewedAt': '',
+                  'merchantProfile.reviewedBy': '',
+                  'merchantProfile.approvedAt': '',
+                  'merchantProfile.rejectedAt': '',
+                },
+              }
+            : {}),
         },
         { new: true },
       )
@@ -303,6 +315,7 @@ export class UsersService {
         reason: input.rejection?.reason,
         tip: input.rejection?.tip,
         rejectedSections: input.rejection?.rejectedSections ?? [],
+        rejectedFields: input.rejection?.rejectedFields ?? [],
         acceptedSections: input.rejection?.acceptedSections ?? [],
       };
       unset['merchantProfile.approvedAt'] = '';

@@ -83,6 +83,9 @@ class MerchantRejection {
   rejectedSections?: string[];
 
   @Prop({ type: [String], default: [] })
+  rejectedFields?: string[];
+
+  @Prop({ type: [String], default: [] })
   acceptedSections?: string[];
 }
 

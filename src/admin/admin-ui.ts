@@ -152,7 +152,35 @@ export function renderAdminUi() {
       ? location.pathname.split('/admin')[0]
       : '/api/v1';
     const state = { token: sessionStorage.getItem('adminAccessToken'), email: '', otpEmail: '', otpRequestId: '', merchants: [], selectedId: '' };
-    const sections = ['identity', 'documents', 'tradeLicense', 'tin', 'bank', 'location', 'shop'];
+    const reviewFields = [
+      { key: 'shopType', label: 'Shop category', section: 'shop' },
+      { key: 'shopPhone', label: 'Shop phone', section: 'shop' },
+      { key: 'shopDescription', label: 'Shop description', section: 'shop' },
+      { key: 'location.division', label: 'Division', section: 'location' },
+      { key: 'location.district', label: 'District', section: 'location' },
+      { key: 'location.upazila', label: 'Upazila', section: 'location' },
+      { key: 'location.detailedAddress', label: 'Detailed address', section: 'location' },
+      { key: 'location.gpsPin', label: 'GPS pin', section: 'location' },
+      { key: 'location.shopFrontPhotoUri', label: 'Shop front photo', section: 'location' },
+      { key: 'location.interiorPhotoUri', label: 'Interior photo', section: 'location' },
+      { key: 'documents.ownerFullName', label: 'Owner full name', section: 'identity' },
+      { key: 'documents.dateOfBirth', label: 'Date of birth', section: 'identity' },
+      { key: 'documents.nidNumber', label: 'NID number', section: 'identity' },
+      { key: 'documents.nidFrontImageUri', label: 'NID front image', section: 'identity' },
+      { key: 'documents.nidBackImageUri', label: 'NID back image', section: 'identity' },
+      { key: 'documents.tradeLicenseNumber', label: 'Trade license number', section: 'tradeLicense' },
+      { key: 'documents.issuingAuthority', label: 'Issuing authority', section: 'tradeLicense' },
+      { key: 'documents.issueDate', label: 'Issue date', section: 'tradeLicense' },
+      { key: 'documents.expiryDate', label: 'Expiry date', section: 'tradeLicense' },
+      { key: 'documents.tradeLicenseImageUri', label: 'Trade license image', section: 'tradeLicense' },
+      { key: 'documents.tinNumber', label: 'TIN number', section: 'tin' },
+      { key: 'documents.tinCertificateImageUri', label: 'TIN certificate image', section: 'tin' },
+      { key: 'bank.bankName', label: 'Bank name', section: 'bank' },
+      { key: 'bank.accountHolderName', label: 'Account holder name', section: 'bank' },
+      { key: 'bank.accountNumber', label: 'Account number', section: 'bank' },
+      { key: 'bank.branchName', label: 'Branch name', section: 'bank' },
+    ];
+    const sections = Array.from(new Set(reviewFields.map((field) => field.section)));
 
     const $ = (id) => document.getElementById(id);
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -405,7 +433,7 @@ export function renderAdminUi() {
         (profile.rejection ? section('Latest Rejection', renderObjectList(profile.rejection)) : '') +
         '<div class="actions stack">' +
           '<div class="row"><button id="approveButton" class="btn" ' + (canReview ? '' : 'disabled') + '>Approve merchant</button><button id="toggleRejectButton" class="btn danger" ' + (canReview ? '' : 'disabled') + '>Reject application</button></div>' +
-          '<form id="rejectForm" class="stack hidden"><label>Reason<textarea id="rejectReason" required minlength="8"></textarea></label><label>Helpful tip<textarea id="rejectTip"></textarea></label><label>Rejected sections<select id="rejectedSections" multiple>' + sections.map((s) => '<option value="' + s + '">' + readable(s) + '</option>').join('') + '</select></label><button class="btn danger" type="submit">Confirm rejection</button></form>' +
+          '<form id="rejectForm" class="stack hidden"><label>Reason<textarea id="rejectReason" required minlength="8" placeholder="Example: NID back image is not clear."></textarea></label><label>Helpful tip<textarea id="rejectTip" placeholder="Tell the merchant exactly how to fix it."></textarea></label><label>Correction fields<select id="rejectedFields" multiple required size="10">' + reviewFields.map((field) => '<option value="' + field.key + '">' + escapeHtml(field.label) + '</option>').join('') + '</select></label><button class="btn danger" type="submit">Confirm rejection</button></form>' +
         '</div>';
       $('approveButton').addEventListener('click', () => approveMerchant(merchant.id));
       $('toggleRejectButton').addEventListener('click', () => $('rejectForm').classList.toggle('hidden'));
@@ -430,13 +458,19 @@ export function renderAdminUi() {
 
     async function rejectMerchant(event, id) {
       event.preventDefault();
-      const selectedSections = Array.from($('rejectedSections').selectedOptions).map((option) => option.value);
+      const selectedFields = Array.from($('rejectedFields').selectedOptions).map((option) => option.value);
+      const selectedSections = Array.from(new Set(reviewFields.filter((field) => selectedFields.includes(field.key)).map((field) => field.section)));
+      if (!selectedFields.length) {
+        alert('Select at least one correction field.');
+        return;
+      }
       await request('/admin/api/merchants/' + encodeURIComponent(id) + '/reject', {
         method: 'POST',
         body: JSON.stringify({
           reason: $('rejectReason').value.trim(),
           tip: $('rejectTip').value.trim() || undefined,
           rejectedSections: selectedSections,
+          rejectedFields: selectedFields,
           acceptedSections: sections.filter((section) => !selectedSections.includes(section)),
         }),
       });

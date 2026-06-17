@@ -40,6 +40,9 @@ export class AdminService {
     if (merchant.merchantProfile.applicationStatus !== MerchantApplicationStatus.UnderReview) {
       throw new BadRequestException('Only applications under review can be rejected');
     }
+    if (!rejection.rejectedFields?.length && !rejection.rejectedSections?.length) {
+      throw new BadRequestException('Select at least one rejected field or section');
+    }
 
     await this.usersService.updateMerchantApplicationReview(merchantId, {
       status: MerchantApplicationStatus.Rejected,

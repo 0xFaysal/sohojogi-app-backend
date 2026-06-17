@@ -17,5 +17,10 @@ export class RejectMerchantDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  rejectedFields?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   acceptedSections?: string[];
 }
