@@ -178,7 +178,7 @@ export class UsersService {
   async updateMerchantProfile(
     merchantId: string,
     merchantProfile: Record<string, unknown>,
-    applicationStatus: MerchantApplicationStatus,
+    applicationStatus?: MerchantApplicationStatus,
     submitted = false,
   ): Promise<UserDocument> {
     const user = await this.userModel
@@ -193,7 +193,9 @@ export class UsersService {
             'merchantProfile.location': merchantProfile.location,
             'merchantProfile.documents': merchantProfile.documents,
             'merchantProfile.bank': merchantProfile.bank,
-            'merchantProfile.applicationStatus': applicationStatus,
+            ...(applicationStatus
+              ? { 'merchantProfile.applicationStatus': applicationStatus }
+              : {}),
             ...(submitted ? { 'merchantProfile.submittedAt': new Date() } : {}),
           },
           ...(submitted
@@ -245,9 +247,17 @@ export class UsersService {
     rejection?: object;
   }> {
     const user = await this.findById(merchantId);
+    const merchantProfile = user.merchantProfile as
+      | (Record<string, unknown> & { applicationStatus?: MerchantApplicationStatus })
+      | undefined;
+    const status =
+      merchantProfile?.applicationStatus === MerchantApplicationStatus.SetupRequired &&
+      merchantProfile.submittedAt
+        ? MerchantApplicationStatus.UnderReview
+        : merchantProfile?.applicationStatus ?? MerchantApplicationStatus.Draft;
 
     return {
-      status: user.merchantProfile?.applicationStatus ?? MerchantApplicationStatus.Draft,
+      status,
       rejection: user.merchantProfile?.rejection,
     };
   }
@@ -258,17 +268,32 @@ export class UsersService {
       merchantProfile: { $exists: true },
     };
 
-    if (status) {
+    if (status === MerchantApplicationStatus.UnderReview) {
+      query.$or = [
+        { 'merchantProfile.applicationStatus': MerchantApplicationStatus.UnderReview },
+        {
+          'merchantProfile.applicationStatus': MerchantApplicationStatus.SetupRequired,
+          'merchantProfile.submittedAt': { $exists: true },
+        },
+      ];
+    } else if (status) {
       query['merchantProfile.applicationStatus'] = status;
     } else {
-      query['merchantProfile.applicationStatus'] = {
-        $in: [
-          MerchantApplicationStatus.UnderReview,
-          MerchantApplicationStatus.Rejected,
-          MerchantApplicationStatus.Approved,
-          MerchantApplicationStatus.SetupRequired,
-        ],
-      };
+      query.$or = [
+        {
+          'merchantProfile.applicationStatus': {
+            $in: [
+              MerchantApplicationStatus.UnderReview,
+              MerchantApplicationStatus.Rejected,
+              MerchantApplicationStatus.Approved,
+            ],
+          },
+        },
+        {
+          'merchantProfile.applicationStatus': MerchantApplicationStatus.SetupRequired,
+          'merchantProfile.submittedAt': { $exists: true },
+        },
+      ];
     }
 
     const users = await this.userModel
@@ -340,6 +365,11 @@ export class UsersService {
   private toAdminMerchantApplication(user: UserDocument) {
     const merchantProfile = (user.merchantProfile ?? {}) as Record<string, unknown>;
     const objectUser = user.toObject() as unknown as Record<string, unknown>;
+    const applicationStatus =
+      merchantProfile.applicationStatus === MerchantApplicationStatus.SetupRequired &&
+      merchantProfile.submittedAt
+        ? MerchantApplicationStatus.UnderReview
+        : merchantProfile.applicationStatus ?? MerchantApplicationStatus.Draft;
 
     return {
       id: user.id,
@@ -364,8 +394,7 @@ export class UsersService {
         location: merchantProfile.location,
         documents: merchantProfile.documents,
         bank: merchantProfile.bank,
-        applicationStatus:
-          merchantProfile.applicationStatus ?? MerchantApplicationStatus.Draft,
+        applicationStatus,
         rejection: merchantProfile.rejection,
         submittedAt: merchantProfile.submittedAt,
         reviewedAt: merchantProfile.reviewedAt,

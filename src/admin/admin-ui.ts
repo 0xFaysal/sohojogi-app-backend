@@ -78,7 +78,6 @@ export function renderAdminUi() {
     .underReview { background: var(--warn-soft); color: #7a4d00; }
     .approved { background: var(--ok-soft); color: #067647; }
     .rejected { background: var(--danger-soft); color: var(--danger); }
-    .setupRequired, .draft { background: #e7f0ff; color: #1849a9; }
     .detail { min-height: calc(100vh - 116px); padding: 20px; overflow: auto; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .section { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: white; }
@@ -133,7 +132,6 @@ export function renderAdminUi() {
               <option value="underReview">Under review</option>
               <option value="rejected">Rejected</option>
               <option value="approved">Approved</option>
-              <option value="setupRequired">Setup required</option>
               <option value="">All active</option>
             </select>
           </label>

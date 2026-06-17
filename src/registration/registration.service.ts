@@ -13,10 +13,9 @@ export class RegistrationService {
     await this.usersService.updateMerchantProfile(
       userId,
       dto as unknown as Record<string, unknown>,
-      MerchantApplicationStatus.SetupRequired,
     );
 
-    return { status: MerchantApplicationStatus.SetupRequired };
+    return { message: 'Merchant setup draft saved' };
   }
 
   async getMerchantSetupDraft(userId: string) {
