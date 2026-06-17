@@ -1,15 +1,23 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { Role } from '../common/enums/role.enum';
+import { UsersService } from '../users/users.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ChatMessage, ChatMessageDocument } from './schemas/chat-message.schema';
-import { ChatThread, ChatThreadDocument, ChatThreadType } from './schemas/chat-thread.schema';
+import {
+  ChatThread,
+  ChatThreadDocument,
+  ChatThreadPurpose,
+  ChatThreadType,
+} from './schemas/chat-thread.schema';
 
 @Injectable()
 export class ChatService {
   constructor(
     @InjectModel(ChatThread.name) private readonly threadModel: Model<ChatThreadDocument>,
     @InjectModel(ChatMessage.name) private readonly messageModel: Model<ChatMessageDocument>,
+    private readonly usersService: UsersService,
   ) {}
 
   async sendMessage(senderId: string, dto: SendMessageDto) {
@@ -39,6 +47,85 @@ export class ChatService {
       .exec();
   }
 
+  async getDealerSupportThread(dealerId: string) {
+    const dealer = await this.usersService.findById(dealerId);
+    if (!dealer.roles.includes(Role.Dealer)) {
+      throw new ForbiddenException('Only dealer accounts can open dealer support chat');
+    }
+
+    const admin = await this.usersService.findFirstByRole(Role.Admin);
+    const participants = [new Types.ObjectId(dealerId), admin._id];
+    const existingThread = await this.threadModel
+      .findOne({
+        type: ChatThreadType.Direct,
+        purpose: ChatThreadPurpose.DealerSupport,
+        participants: { $all: participants, $size: 2 },
+      })
+      .populate('participants', 'username email roles')
+      .exec();
+
+    if (existingThread) {
+      return existingThread;
+    }
+
+    return this.threadModel.create({
+      type: ChatThreadType.Direct,
+      purpose: ChatThreadPurpose.DealerSupport,
+      title: 'Dealer Support',
+      participants,
+    });
+  }
+
+  async getDealerSupportThreadsForAdmin(adminId: string) {
+    const admin = await this.usersService.findById(adminId);
+    if (!admin.roles.includes(Role.Admin)) {
+      throw new ForbiddenException('Only admins can view support inbox');
+    }
+
+    const threads = await this.threadModel
+      .find({ purpose: ChatThreadPurpose.DealerSupport, participants: adminId })
+      .populate('participants', 'username email roles')
+      .sort({ lastMessageAt: -1, updatedAt: -1 })
+      .exec();
+
+    return Promise.all(threads.map((thread) => this.withLastMessage(thread)));
+  }
+
+  async sendDealerSupportMessage(senderId: string, content: string, threadId?: string) {
+    const sender = await this.usersService.findById(senderId);
+    let thread: ChatThreadDocument;
+
+    if (sender.roles.includes(Role.Dealer)) {
+      thread = await this.getDealerSupportThread(senderId);
+    } else if (sender.roles.includes(Role.Admin)) {
+      if (!threadId) {
+        throw new BadRequestException('threadId is required for admin support replies');
+      }
+
+      thread = await this.ensureParticipant(threadId, senderId);
+      if (thread.purpose !== ChatThreadPurpose.DealerSupport) {
+        throw new ForbiddenException('This is not a dealer support thread');
+      }
+    } else {
+      throw new ForbiddenException('Only dealers and admins can use dealer support chat');
+    }
+
+    const receiver = thread.participants.find((participant) => participant.toString() !== senderId);
+    const message = await this.messageModel.create({
+      threadId: thread._id,
+      sender: new Types.ObjectId(senderId),
+      receiver,
+      type: ChatThreadType.Direct,
+      content,
+      readBy: [new Types.ObjectId(senderId)],
+    });
+
+    thread.lastMessageAt = new Date();
+    await thread.save();
+
+    return message.populate('sender', 'username email roles');
+  }
+
   async getMessages(threadId: string, userId: string) {
     await this.ensureParticipant(threadId, userId);
     return this.messageModel
@@ -66,6 +153,21 @@ export class ChatService {
     }
 
     return thread;
+  }
+
+  private async withLastMessage(thread: ChatThreadDocument) {
+    const lastMessage = await this.messageModel
+      .findOne({ threadId: thread._id })
+      .populate('sender', 'username email roles')
+      .sort({ createdAt: -1 })
+      .exec();
+
+    const objectThread = thread.toObject();
+    return {
+      ...objectThread,
+      id: thread.id,
+      lastMessage,
+    };
   }
 
   private async resolveThread(senderId: string, dto: SendMessageDto) {

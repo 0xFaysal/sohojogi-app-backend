@@ -90,12 +90,27 @@ export function renderAdminUi() {
     .asset-preview img { width: min(320px, 100%); max-height: 220px; object-fit: contain; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); }
     .local-file-note { color: var(--danger); font-weight: 700; }
     .actions { position: sticky; bottom: 0; margin: 16px -20px -20px; padding: 16px 20px; background: rgba(255,255,255,.94); border-top: 1px solid var(--border); backdrop-filter: blur(14px); }
+    .support-panel { position: fixed; right: 22px; bottom: 22px; z-index: 30; width: min(760px, calc(100vw - 44px)); height: min(660px, calc(100vh - 110px)); display: grid; grid-template-columns: 260px minmax(0, 1fr); overflow: hidden; }
+    .support-list { border-right: 1px solid var(--border); overflow: auto; background: #fbfcfd; }
+    .support-thread { width: 100%; display: grid; gap: 7px; padding: 14px; text-align: left; background: transparent; border-bottom: 1px solid var(--border); }
+    .support-thread:hover, .support-thread.active { background: #eef7f4; }
+    .support-chat { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
+    .support-chat-head { padding: 16px; border-bottom: 1px solid var(--border); background: white; }
+    .support-messages { padding: 16px; overflow: auto; background: #f7faf9; }
+    .bubble-row { display: flex; margin-bottom: 10px; }
+    .bubble-row.mine { justify-content: flex-end; }
+    .bubble { max-width: 78%; padding: 10px 12px; border-radius: 18px; background: white; border: 1px solid var(--border); line-height: 1.45; }
+    .bubble.mine { background: var(--primary); color: white; border-color: var(--primary); }
+    .support-composer { display: flex; gap: 10px; padding: 12px; border-top: 1px solid var(--border); background: white; }
+    .support-composer textarea { min-height: 44px; max-height: 96px; resize: vertical; }
     .hidden { display: none !important; }
     @media (max-width: 860px) {
       .layout { grid-template-columns: 1fr; padding: 12px; }
       .merchant-list { max-height: none; }
       .grid { grid-template-columns: 1fr; }
       .topbar { padding: 0 14px; }
+      .support-panel { grid-template-columns: 1fr; height: calc(100vh - 40px); right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+      .support-list { max-height: 170px; border-right: 0; border-bottom: 1px solid var(--border); }
     }
   </style>
 </head>
@@ -121,7 +136,7 @@ export function renderAdminUi() {
   <main id="dashboardView" class="shell hidden">
     <header class="topbar">
       <div class="brand"><div class="mark">S</div><div><h2>SHOJOGI Admin</h2><div id="adminEmail" class="muted"></div></div></div>
-      <button id="logoutButton" class="btn secondary" type="button">Logout</button>
+      <div class="row"><button id="supportButton" class="btn" type="button">Dealer Support</button><button id="logoutButton" class="btn secondary" type="button">Logout</button></div>
     </header>
     <section class="layout">
       <aside class="panel">
@@ -145,11 +160,30 @@ export function renderAdminUi() {
     </section>
   </main>
 
+  <section id="supportPanel" class="panel support-panel hidden">
+    <aside class="support-list">
+      <div class="list-head stack">
+        <div class="row between"><h2>Dealer Support</h2><button id="closeSupportButton" class="btn secondary" type="button">Close</button></div>
+        <button id="refreshSupportButton" class="btn secondary full" type="button">Refresh chats</button>
+      </div>
+      <div id="supportThreadList"></div>
+    </aside>
+    <div class="support-chat">
+      <div id="supportChatHead" class="support-chat-head"><div class="muted">Select a support chat.</div></div>
+      <div id="supportMessages" class="support-messages"><div class="empty">No chat selected.</div></div>
+      <form id="supportComposer" class="support-composer">
+        <textarea id="supportMessageInput" placeholder="Reply to dealer..." required></textarea>
+        <button class="btn" type="submit">Send</button>
+      </form>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     const apiBase = location.pathname.includes('/admin')
       ? location.pathname.split('/admin')[0]
       : '/api/v1';
-    const state = { token: sessionStorage.getItem('adminAccessToken'), email: '', otpEmail: '', otpRequestId: '', merchants: [], selectedId: '' };
+    const state = { token: sessionStorage.getItem('adminAccessToken'), email: '', otpEmail: '', otpRequestId: '', merchants: [], selectedId: '', supportThreads: [], selectedSupportThreadId: '', supportMessages: [], supportSocket: null };
     const reviewFields = [
       { key: 'shopType', label: 'Shop category', section: 'shop' },
       { key: 'shopPhone', label: 'Shop phone', section: 'shop' },
@@ -221,6 +255,7 @@ export function renderAdminUi() {
       $('loginView').classList.add('hidden');
       $('dashboardView').classList.remove('hidden');
       $('adminEmail').textContent = state.email;
+      connectSupportSocket();
     }
 
     async function bootstrap() {
@@ -297,11 +332,131 @@ export function renderAdminUi() {
       state.token = '';
       state.merchants = [];
       state.selectedId = '';
+      state.supportSocket?.disconnect();
+      state.supportSocket = null;
+      $('supportPanel').classList.add('hidden');
       showLogin();
     });
 
     $('refreshButton').addEventListener('click', loadMerchants);
     $('statusFilter').addEventListener('change', loadMerchants);
+    $('supportButton').addEventListener('click', async () => {
+      $('supportPanel').classList.remove('hidden');
+      await loadSupportThreads();
+    });
+    $('closeSupportButton').addEventListener('click', () => $('supportPanel').classList.add('hidden'));
+    $('refreshSupportButton').addEventListener('click', loadSupportThreads);
+    $('supportComposer').addEventListener('submit', sendSupportReply);
+
+    function connectSupportSocket() {
+      if (state.supportSocket || typeof io !== 'function' || !state.token) return;
+      state.supportSocket = io(location.origin, { auth: { token: state.token }, transports: ['websocket'] });
+      state.supportSocket.on('support:message', (message) => {
+        const threadId = String(message.threadId);
+        if (threadId === state.selectedSupportThreadId) {
+          appendSupportMessage(message);
+        }
+        loadSupportThreads().catch(() => undefined);
+      });
+    }
+
+    async function loadSupportThreads() {
+      $('supportThreadList').innerHTML = '<div class="empty">Loading chats...</div>';
+      state.supportThreads = await request('/chat/support/admin/threads');
+      renderSupportThreads();
+      const selected = state.supportThreads.find((thread) => getThreadId(thread) === state.selectedSupportThreadId) || state.supportThreads[0];
+      if (selected) await selectSupportThread(getThreadId(selected));
+      else renderEmptySupportChat();
+    }
+
+    function getThreadId(thread) {
+      return String(thread.id || thread._id);
+    }
+
+    function getUserName(user) {
+      return user?.username || user?.email || 'Dealer';
+    }
+
+    function getDealerParticipant(thread) {
+      return (thread.participants || []).find((user) => user.roles?.includes('dealer')) || thread.participants?.[0] || {};
+    }
+
+    function renderSupportThreads() {
+      if (!state.supportThreads.length) {
+        $('supportThreadList').innerHTML = '<div class="empty">No dealer support chats yet.</div>';
+        return;
+      }
+      $('supportThreadList').innerHTML = state.supportThreads.map((thread) => {
+        const dealer = getDealerParticipant(thread);
+        const last = thread.lastMessage?.content || 'New support chat';
+        const id = getThreadId(thread);
+        return '<button class="support-thread ' + (id === state.selectedSupportThreadId ? 'active' : '') + '" data-thread-id="' + escapeHtml(id) + '">' +
+          '<div class="merchant-title"><span>' + escapeHtml(getUserName(dealer)) + '</span></div>' +
+          '<div class="muted">' + escapeHtml(dealer.email || '') + '</div>' +
+          '<div class="muted">' + escapeHtml(last) + '</div>' +
+          '</button>';
+      }).join('');
+      document.querySelectorAll('.support-thread').forEach((button) => button.addEventListener('click', () => selectSupportThread(button.dataset.threadId)));
+    }
+
+    async function selectSupportThread(threadId) {
+      state.selectedSupportThreadId = threadId;
+      renderSupportThreads();
+      const thread = state.supportThreads.find((item) => getThreadId(item) === threadId);
+      const dealer = getDealerParticipant(thread || {});
+      $('supportChatHead').innerHTML = '<h2>' + escapeHtml(getUserName(dealer)) + '</h2><div class="muted">' + escapeHtml(dealer.email || 'Dealer support conversation') + '</div>';
+      $('supportMessages').innerHTML = '<div class="empty">Loading messages...</div>';
+      state.supportMessages = await request('/chat/threads/' + encodeURIComponent(threadId) + '/messages');
+      renderSupportMessages();
+    }
+
+    function renderEmptySupportChat() {
+      state.selectedSupportThreadId = '';
+      state.supportMessages = [];
+      $('supportChatHead').innerHTML = '<div class="muted">Select a support chat.</div>';
+      $('supportMessages').innerHTML = '<div class="empty">No dealer support chats yet.</div>';
+    }
+
+    function renderSupportMessages() {
+      if (!state.supportMessages.length) {
+        $('supportMessages').innerHTML = '<div class="empty">No messages yet.</div>';
+        return;
+      }
+      $('supportMessages').innerHTML = state.supportMessages.map(renderSupportMessage).join('');
+      $('supportMessages').scrollTop = $('supportMessages').scrollHeight;
+    }
+
+    function renderSupportMessage(message) {
+      const mine = message.sender?.roles?.includes('admin');
+      return '<div class="bubble-row ' + (mine ? 'mine' : '') + '"><div class="bubble ' + (mine ? 'mine' : '') + '">' +
+        '<div>' + escapeHtml(message.content) + '</div>' +
+        '<div style="font-size:11px;opacity:.72;margin-top:4px;text-align:right">' + escapeHtml(fmt(message.createdAt)) + '</div>' +
+        '</div></div>';
+    }
+
+    function appendSupportMessage(message) {
+      const id = String(message._id || message.id || message.createdAt);
+      if (state.supportMessages.some((item) => String(item._id || item.id || item.createdAt) === id)) return;
+      state.supportMessages.push(message);
+      renderSupportMessages();
+    }
+
+    async function sendSupportReply(event) {
+      event.preventDefault();
+      const content = $('supportMessageInput').value.trim();
+      if (!content || !state.selectedSupportThreadId) return;
+      $('supportMessageInput').value = '';
+      if (state.supportSocket?.connected) {
+        state.supportSocket.emit('support:message', { threadId: state.selectedSupportThreadId, content });
+        return;
+      }
+      const message = await request('/chat/support/admin/threads/' + encodeURIComponent(state.selectedSupportThreadId) + '/messages', {
+        method: 'POST',
+        body: JSON.stringify({ content }),
+      });
+      appendSupportMessage(message);
+      await loadSupportThreads();
+    }
 
     async function loadMerchants() {
       $('merchantList').innerHTML = '<div class="empty">Loading applications...</div>';

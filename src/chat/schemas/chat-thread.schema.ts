@@ -8,6 +8,10 @@ export enum ChatThreadType {
   Group = 'group',
 }
 
+export enum ChatThreadPurpose {
+  DealerSupport = 'dealerSupport',
+}
+
 @Schema({ timestamps: true })
 export class ChatThread {
   @Prop({ enum: ChatThreadType, required: true })
@@ -18,6 +22,9 @@ export class ChatThread {
 
   @Prop({ trim: true })
   title?: string;
+
+  @Prop({ enum: ChatThreadPurpose })
+  purpose?: ChatThreadPurpose;
 
   @Prop({ type: Types.ObjectId, ref: 'GroupBuy' })
   groupBuy?: Types.ObjectId;

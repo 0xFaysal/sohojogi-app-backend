@@ -66,6 +66,33 @@ export class ChatGateway implements OnGatewayConnection {
     return message;
   }
 
+  @SubscribeMessage('support:message')
+  async handleSupportMessage(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() payload: { threadId?: string; content: string },
+  ) {
+    if (!client.user) {
+      client.disconnect(true);
+      return;
+    }
+
+    const message = await this.chatService.sendDealerSupportMessage(
+      client.user.userId,
+      payload.content,
+      payload.threadId,
+    );
+    const thread = await this.chatService.getThread(message.threadId.toString());
+    const room = this.threadRoom(thread.id);
+    client.join(room);
+
+    for (const participant of thread.participants) {
+      this.server.to(this.userRoom(participant.toString())).emit('support:message', message);
+    }
+
+    this.server.to(room).emit('support:message', message);
+    return message;
+  }
+
   @SubscribeMessage('typing')
   async handleTyping(
     @ConnectedSocket() client: AuthenticatedSocket,

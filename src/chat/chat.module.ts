@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from '../auth/auth.module';
+import { UsersModule } from '../users/users.module';
 import { ChatController } from './chat.controller';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
@@ -10,6 +11,7 @@ import { ChatThread, ChatThreadSchema } from './schemas/chat-thread.schema';
 @Module({
   imports: [
     AuthModule,
+    UsersModule,
     MongooseModule.forFeature([
       { name: ChatThread.name, schema: ChatThreadSchema },
       { name: ChatMessage.name, schema: ChatMessageSchema },

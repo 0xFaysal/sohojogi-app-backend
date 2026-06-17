@@ -76,6 +76,15 @@ export class UsersService {
     return user;
   }
 
+  async findFirstByRole(role: Role): Promise<UserDocument> {
+    const user = await this.userModel.findOne({ roles: role }).sort({ createdAt: 1 }).exec();
+    if (!user) {
+      throw new NotFoundException(`${role} user not found`);
+    }
+
+    return user;
+  }
+
   async findByIdWithPassword(id: string): Promise<UserDocument> {
     const user = await this.userModel.findById(id).select('+password').exec();
     if (!user) {
